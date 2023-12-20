@@ -1,0 +1,281 @@
+DROP PROCEDURE IF EXISTS JamesMins;
+DELIMITER //
+CREATE PROCEDURE JamesMins(OUT totalMinutesCavaliers VARCHAR(100), OUT totalMinutesHeat VARCHAR(100))
+BEGIN
+    -- Calculate total minutes for Cavaliers
+    SELECT SUM(CAST(MIN AS UNSIGNED)) INTO totalMinutesCavaliers
+    FROM games_details
+    WHERE PLAYER_ID = 2544 AND TEAM_ID = 1610612739;
+
+    -- Calculate total minutes for Heat
+    SELECT SUM(CAST(MIN AS UNSIGNED)) INTO totalMinutesHeat
+    FROM games_details
+    WHERE PLAYER_ID = 2544 AND TEAM_ID = 1610612748;
+END //
+
+DELIMITER ;
+
+
+DROP PROCEDURE IF EXISTS TeamPerformance;
+DELIMITER //
+CREATE PROCEDURE TeamPerformance(IN teamId BIGINT, OUT ptsHome INT, OUT fgPctHome DECIMAL(5, 4), OUT ftPctHome DECIMAL(5, 4), OUT 3PctHome DECIMAL(5, 4), OUT ptsAway INT, OUT fgPctAway DECIMAL(5, 4), OUT ftPctAway DECIMAL(5, 4), OUT 3PctAway DECIMAL(5, 4))
+BEGIN
+    -- Calculate averages for all games
+    SELECT AVG(PTS_home), AVG(FG_PCT_home), AVG(FT_PCT_home), AVG(FG3_PCT_home)
+    INTO ptsHome, fgPctHome, ftPctHome, 3PctHome
+    FROM games
+    WHERE HOME_TEAM_ID = teamId AND SEASON = 2022;
+
+    -- Calculate averages for winning games
+    SELECT AVG(PTS_away), AVG(FG_PCT_away), AVG(FT_PCT_away), AVG(FG3_PCT_away)
+    INTO ptsAway, fgPctAway, ftPctAway, 3PctAway
+    FROM games
+    WHERE VISITOR_TEAM_ID = teamId AND SEASON = 2022;
+
+END //
+
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS StarterBench;
+DELIMITER //
+CREATE PROCEDURE StarterBench(IN teamId BIGINT, OUT sMins DECIMAL(5,2), OUT bMins DECIMAL(5,2))
+BEGIN
+    SELECT AVG(MIN)
+    INTO sMins
+    FROM games_details
+    WHERE TEAM_ID = teamId AND START_POSITION <> '';
+
+    SELECT AVG(MIN)
+    INTO bMins
+    FROM games_details
+    WHERE TEAM_ID = teamId AND START_POSITION = '';
+
+END //
+
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS Check10Recent;
+DELIMITER //
+CREATE PROCEDURE Check10Recent(IN playerId BIGINT, OUT pname VARCHAR(100), OUT avgm DECIMAL(5,2), OUT avgp DECIMAL(5,2), OUT avgr DECIMAL(5,2), OUT avga DECIMAL(5,2))
+BEGIN
+    SELECT PLAYER_NAME, ROUND(AVG(MIN), 2), ROUND(AVG(PTS), 2), ROUND(AVG(REB), 2), ROUND(AVG(AST), 2)
+    INTO pname, avgm, avgp, avgr, avga
+    FROM games_details
+    WHERE PLAYER_ID = playerId
+    GROUP BY PLAYER_ID
+    LIMIT 10;
+END //
+
+DELIMITER ;
+
+
+DROP PROCEDURE IF EXISTS DiffPosFt;
+DELIMITER //
+CREATE PROCEDURE DiffPosFt(OUT GFTPCT DECIMAL(5,4), OUT FFTPCT DECIMAL(5,4), OUT CFTPCT DECIMAL(5,4))
+BEGIN
+    SELECT SUM(FTM)/SUM(FTA)
+    INTO GFTPCT
+    FROM games_details
+    WHERE START_POSITION = 'G';
+
+    SELECT SUM(FTM)/SUM(FTA)
+    INTO FFTPCT
+    FROM games_details
+    WHERE START_POSITION = 'F';
+
+    SELECT SUM(FTM)/SUM(FTA)
+    INTO CFTPCT
+    FROM games_details
+    WHERE START_POSITION = 'C';
+
+END //
+
+DELIMITER ;
+
+/* This query is unable to achieve due to time constraints */
+DROP VIEW IF EXISTS StarterInfo;
+CREATE VIEW StarterInfo AS
+SELECT GAME_ID, PLAYER_ID, START_POSITION
+FROM games_details
+WHERE START_POSITION <> '';
+
+DROP VIEW IF EXISTS recentGames;
+CREATE VIEW recentGames AS
+SELECT GAME_ID
+FROM games
+WHERE games.SEASON = 2022;
+
+DROP VIEW IF EXISTS 09Players;
+CREATE VIEW 09Players AS
+SELECT PLAYER_ID, PLAYER_NAME
+FROM players
+WHERE players.SEASON = 2009;
+
+DROP PROCEDURE IF EXISTS Veterens;
+DELIMITER //
+
+CREATE PROCEDURE Veterens()
+BEGIN
+    SELECT p.PLAYER_NAME
+    FROM 09Players p 
+    JOIN StarterInfo si ON si.PLAYER_ID = p.PLAYER_ID
+    JOIN recentGames g ON g.GAME_ID = si.GAME_ID;
+END //
+
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS 60ButLose;
+DELIMITER //
+
+CREATE PROCEDURE 60ButLose(OUT totalGames INT)
+BEGIN
+    SELECT COUNT(*) INTO totalGames
+    FROM (
+        SELECT GAME_ID
+        FROM games
+        WHERE FG_PCT_home > 0.6 AND HOME_TEAM_WINS = 0
+        UNION ALL
+        SELECT GAME_ID
+        FROM games
+        WHERE FG_PCT_away > 0.6 AND HOME_TEAM_WINS = 1
+    ) AS subquery;
+END //
+
+DELIMITER ;
+
+
+DROP VIEW IF EXISTS Kobe40Mins;
+CREATE VIEW Kobe40Mins AS
+SELECT GAME_ID
+FROM games_details
+WHERE PLAYER_ID = 977 AND MIN > 40;
+
+DROP PROCEDURE IF EXISTS KobeLoss;
+DELIMITER //
+
+CREATE PROCEDURE KobeLoss(OUT totalGames INT, OUT lostGames INT, OUT lossPercentage DECIMAL(5, 2))
+BEGIN
+    -- Calculate the total number of games Kobe played more than 40 minutes
+    SELECT COUNT(*) FROM Kobe40Mins INTO totalGames;
+
+    -- Calculate the number of those games that were lost
+    SELECT COUNT(*) INTO lostGames FROM (
+        SELECT g.GAME_ID
+        FROM games g
+        JOIN Kobe40Mins k ON k.GAME_ID = g.GAME_ID
+        WHERE (g.HOME_TEAM_ID = 1610612747 AND g.HOME_TEAM_WINS = 0)
+           OR (g.VISITOR_TEAM_ID = 1610612747 AND g.HOME_TEAM_WINS = 1)
+    ) AS subquery ;
+
+    -- Calculate the percentage of losses
+    IF totalGames > 0 THEN
+        SET lossPercentage = (lostGames / totalGames) * 100;
+    ELSE
+        SET lossPercentage = 0;
+    END IF;
+END //
+
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS TeamArenaCap;
+DELIMITER //
+
+CREATE PROCEDURE TeamArenaCap()
+BEGIN
+    SELECT ABBREVIATION, NICKNAME, CITY, ARENA
+    FROM teams
+    WHERE YEARFOUNDED = 1946 AND ARENACAPACITY > 18000;
+END //
+
+DELIMITER ;
+
+DROP VIEW IF EXISTS LalvsBos;
+CREATE VIEW LalvsBos AS
+SELECT GAME_ID 
+FROM games 
+WHERE (HOME_TEAM_ID = 1610612738 AND VISITOR_TEAM_ID = 1610612747) OR (HOME_TEAM_ID = 1610612747 AND VISITOR_TEAM_ID = 1610612738);
+
+DROP PROCEDURE IF EXISTS LalWinsOverBos;
+DELIMITER //
+
+CREATE PROCEDURE LalWinsOverBos(OUT totalGames INT, OUT LAWins INT)
+BEGIN
+    SELECT COUNT(GAME_ID) FROM LalvsBos INTO totalGames;
+    SELECT COUNT(GAME_ID) INTO LAWins
+    FROM games
+    WHERE (HOME_TEAM_ID = 1610612738 AND VISITOR_TEAM_ID = 1610612747 AND HOME_TEAM_WINS = 0)
+        OR(HOME_TEAM_ID = 1610612747 AND VISITOR_TEAM_ID = 1610612738 AND HOME_TEAM_WINS = 1);
+END //
+
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS GetDNPCount;
+DELIMITER //
+
+CREATE PROCEDURE GetDNPCount()
+BEGIN
+    SELECT TEAM_ABBREVIATION, COUNT(*) AS DNP_Count
+    FROM games_details
+    WHERE COMMENT LIKE '%DNP%' AND GAME_ID IN (
+        SELECT GAME_ID 
+        FROM games 
+    )
+    GROUP BY TEAM_ABBREVIATION
+    ORDER BY DNP_Count DESC;
+END //
+
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS UniNnameCount;
+DELIMITER //
+
+CREATE PROCEDURE UniNnameCount()
+BEGIN
+    SELECT 
+        TEAM_ABBREVIATION, 
+        COUNT(DISTINCT CONCAT(PLAYER_ID, '-', NICKNAME)) AS Unique_Nickname_Count
+    FROM games_details
+    WHERE GAME_ID IN (
+        SELECT GAME_ID 
+        FROM games 
+        WHERE YEAR(GAME_DATE_EST) BETWEEN 2004 AND 2020
+    )
+    GROUP BY TEAM_ABBREVIATION
+    ORDER BY TEAM_ABBREVIATION;
+END //
+
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS TopPMPlayer;
+DELIMITER //
+
+CREATE PROCEDURE TopPMPlayer()
+BEGIN
+    SELECT TEAM_ABBREVIATION, PLAYER_ID, PLAYER_NAME, MAX(PLUS_MINUS) AS Max_PlusMinus, PTS, MIN
+    FROM games_details
+    WHERE GAME_ID IN (
+        SELECT GAME_ID 
+        FROM games 
+        WHERE YEAR(GAME_DATE_EST) BETWEEN 2005 AND 2015
+    )
+    GROUP BY PLAYER_ID
+    ORDER BY Max_PlusMinus DESC
+    LIMIT 1;
+END //
+
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS GetTopGameMonth;
+DELIMITER //
+
+CREATE PROCEDURE GetTopGameMonth()
+BEGIN
+    SELECT MONTH(STR_TO_DATE(GAME_DATE_EST, '%Y-%m-%d')) AS Month, COUNT(*) / 12 AS Game_Per_Month, COUNT(*) / 12 / 31 AS Game_Per_Day
+    FROM games
+    WHERE YEAR(STR_TO_DATE(GAME_DATE_EST, '%Y-%m-%d')) BETWEEN 2004 AND 2020
+    GROUP BY Month
+    ORDER BY Game_Per_Month DESC
+    LIMIT 1;
+END //
+
+DELIMITER ;
